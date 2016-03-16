@@ -18,28 +18,24 @@ static struct{
 	} synthesizer;
 
 
-volatile uint32_t phase_accumulators[8] = {
-  0, 0, 0, 0, 0, 0, 0, 0};      //-Wave phase accumulators
-volatile uint16_t frequancy_tuning_word[8] = {
-  0, 0, 0, 0, 0, 0, 0, 0};           //-Wave frequency tuning words 200, 200, 300, 400, 200, 200, 300, 400
-volatile uint16_t amplitude[8] = {
-  0, 0, 0, 0, 0, 0, 0, 0};           //-Wave amplitudes [0-255]
-volatile uint16_t pitch[8] = {
-  100, 500, 500, 500, 100, 500, 500, 500};          //-Voice pitch
-volatile int modulation[8] = {
-  20, 0, 64, 127, 20, 0, 64, 127};                         //-Voice envelope modulation [0-1023 512=no mod. <512 pitch down >512 pitch up]
-volatile uint8_t *wavs[8];                                   //-Wave table selector [address of wave in memory]
-volatile uint16_t *envs[8];                                  //-Envelope selector [address of envelope in memory]
-volatile uint16_t  envelope_phase[8] = {
-  0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000, 0x8000}; //-Envelope phase accumulator
-volatile uint16_t  env_fast_tuning_word[8] = {
-  10, 10, 10, 10, 10, 10, 10, 10};               //-Envelope speed tuning word
+volatile uint32_t phase_accumulators[SYNTH_VOICE_COUNT] = {
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,};      //-Wave phase accumulators
+volatile uint16_t frequancy_tuning_word[SYNTH_VOICE_COUNT] = {
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,};           //-Wave frequency tuning words 200, 200, 300, 400, 200, 200, 300, 400
+volatile uint16_t amplitude[SYNTH_VOICE_COUNT] = {
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,};           //-Wave amplitudes [0-255]
+volatile uint16_t pitch[SYNTH_VOICE_COUNT] = {
+  100, 500, 500, 500, 100, 500, 500, 500, 0, 0, 0, 0, 0, 0, 0, 0,};          //-Voice pitch
 
-volatile uint32_t max_length[8] = {
-  4166144, 17880320, 17880320, 17880320, 25999360, 17880320, 25999360, 1040384, 
-};//1040384, //15043584
-volatile uint32_t loop_point[8] = {
-	125184, 4967424, 4967424, 4967424, 1149184, 4967424, 1149184, 0,
+volatile const uint8_t *wavs[SYNTH_VOICE_COUNT];                                   //-Wave table selector [address of wave in memory]
+
+volatile uint32_t max_length[SYNTH_VOICE_COUNT] = {
+  28890112, 28890112, 28890112, 28890112, 28890112, 28890112, 28890112, 28890112,
+  28890112, 28890112, 28890112, 28890112, 28890112, 28890112, 28890112, 28890112, 
+  };//1040384, //15043584
+volatile uint32_t loop_point[SYNTH_VOICE_COUNT] = {
+	2006528, 2006528, 2006528, 2006528, 2006528, 2006528, 2006528, 2006528, 
+	2006528, 2006528, 2006528, 2006528, 2006528, 2006528, 2006528, 2006528,
 };
 
 volatile unsigned char divider = 0;//-Sample rate decimator for envelope
@@ -47,19 +43,19 @@ volatile uint16_t time_hz = 0;
 volatile unsigned char tik = 0; 
 volatile unsigned char output_mode;
 
-volatile uint16_t wave_amplitude[8] = {
-  0, 0, 0, 0, 0, 0, 0, 0,
+volatile uint16_t wave_amplitude[SYNTH_VOICE_COUNT] = {
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
-volatile int16_t Pitch_bend[8] = {
-  0, 0, 0, 0, 0, 0, 0, 0,};
+volatile int16_t Pitch_bend[SYNTH_VOICE_COUNT] = {
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,};
   
- volatile int noteTrigger[8] = {
- 0, 0, 0, 0, 0, 0, 0, 0,};
+ volatile int noteTrigger[SYNTH_VOICE_COUNT] = {
+ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,};
  
-volatile int noteDeath[8] = {
-	0, 0, 0, 0, 0, 0, 0, 0,
+volatile int noteDeath[SYNTH_VOICE_COUNT] = {
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
-volatile int current_stage = 0;
+volatile int current_stage = 20;
 
 volatile uint16_t test_variable = 0;
 
@@ -69,15 +65,15 @@ volatile uint16_t test_variable = 0;
 
 void TC5_Handler()
 	{
-
 	TC_GetStatus(TC1, 2);
+	
+	int i = 0;
 	//-------------------------------
 	// Time division
 	//-------------------------------
 	divider++;
-	if(!(divider&=0x07))
+	if(!(divider&=0x0f))
 		tik=1;
-
 	//-------------------------------
 	// Volume envelope generator
 	//-------------------------------
@@ -93,65 +89,74 @@ void TC5_Handler()
 		noteDeath[divider] = 0;
 	}
 	envelope_update(&synthesizer.amplitudeEnvs[divider]);
-	amplitude[divider] = env_getOutput(&synthesizer.amplitudeEnvs[divider]);//&(wave_amplitude[divider]);
-	current_stage = env_getStage(&synthesizer.amplitudeEnvs[0]);
-	
+	amplitude[divider] = env_getOutput(&synthesizer.amplitudeEnvs[divider]);//&(wave_amplitude[divider]);	
   
   
 	//-------------------------------
 	//  Synthesizer/audio mixer
 	//-------------------------------
-	if (phase_accumulators[7] >= 1000384){ 
-		frequancy_tuning_word[7] = 0;
-		//amplitude[7] = 0;
+
+	for (i=0; i < SYNTH_VOICE_COUNT; i++){
+		phase_accumulators[i] += frequancy_tuning_word[i] + Pitch_bend[i];
 	}
-	phase_accumulators[0] += frequancy_tuning_word[0] + Pitch_bend[0];
-	phase_accumulators[1] += frequancy_tuning_word[1] + Pitch_bend[1];
-	phase_accumulators[2] += frequancy_tuning_word[2] + Pitch_bend[2];
-	phase_accumulators[3] += frequancy_tuning_word[3] + Pitch_bend[3];
-	phase_accumulators[4] += frequancy_tuning_word[4] + Pitch_bend[4];
-	phase_accumulators[5] += frequancy_tuning_word[5] + Pitch_bend[5];
-	phase_accumulators[6] += frequancy_tuning_word[6] + Pitch_bend[6];
-	phase_accumulators[7] += frequancy_tuning_word[7] + Pitch_bend[7];
+	
+	for(i=0; i < SYNTH_VOICE_COUNT; i++){
+		if (phase_accumulators[i] >= max_length[i]) phase_accumulators[i] -= loop_point[i];
+	}
+	int16_t output_sum = 0;
+	int16_t wave_temp = 0;
+	for (i=0; i<SYNTH_VOICE_COUNT; i++){
+		wave_temp = 127 - *(wavs[i] + ((phase_accumulators[i]) >> 9));
+		output_sum += ((wave_temp * amplitude[i]) >> 8);
+	}
+	REG_PIOD_ODSR = 127 + ((output_sum) >> 2);
 
-	while (phase_accumulators[0] >= max_length[0]) phase_accumulators[0] -= loop_point[0];
-	while (phase_accumulators[1] >= max_length[1]) phase_accumulators[1] -= loop_point[1];
-	while (phase_accumulators[2] >= max_length[2]) phase_accumulators[2] -= loop_point[2];
-	while (phase_accumulators[3] >= max_length[3]) phase_accumulators[3] -= loop_point[3];
-	while (phase_accumulators[4] >= max_length[4]) phase_accumulators[4] -= loop_point[4];
-	while (phase_accumulators[5] >= max_length[5]) phase_accumulators[5] -= loop_point[5];
-	while (phase_accumulators[6] >= max_length[6]) phase_accumulators[6] -= loop_point[6];
-	if (phase_accumulators[7] >= max_length[7]) phase_accumulators[7] -= loop_point[7];
-  
-	int16_t wave_zero = 127 - *(wavs[0] + ((phase_accumulators[0]) >> 8));
-	int16_t wave_one = 127 - *(wavs[1] + (phase_accumulators[1] >> 8));
-	int16_t wave_two = 127 - *(wavs[2] + (phase_accumulators[2] >> 8));
-	int16_t wave_three = 127 - *(wavs[3] + (phase_accumulators[3] >> 8));
-	int16_t wave_four = 127 - *(wavs[4] + (phase_accumulators[4] >> 8));
-	int16_t wave_five = 127 - *(wavs[5] + (phase_accumulators[5] >> 8));
-	int16_t wave_six = 127 - *(wavs[6] + (phase_accumulators[6] >> 8));
-	int16_t wave_seven = 127 - *(wavs[7] + (phase_accumulators[7] >> 8));
-	REG_PIOD_ODSR = 127 + ((((wave_zero * amplitude[0]) >> 8) + ((wave_one * amplitude[1]) >> 8) + ((wave_two * amplitude[2]) >> 8) + ((wave_three * amplitude[3]) >> 8)+
-					((wave_four * amplitude[4]) >> 8) + ((wave_five * amplitude[5]) >> 8) + ((wave_six * amplitude[6]) >> 8) + ((wave_seven * amplitude[7]) >> 8)) >> 2);
-
-	//test_variable = ((wave_seven * amplitude[7]) >> 8);
-	//************************************************
-	//  Modulation engine
-	//************************************************
-	//  FTW[divider] = PITCH[divider] + (int)   (((PITCH[divider]/64)*(EPCW[divider]/64)) /128)*MOD[divider];
-	frequancy_tuning_word[divider] = pitch[divider];// + (((pitch[divider]>>6)*(envelope_phase[divider]>>6))/128);// + Pitch_bend[divider] - 128;//MOD[divider];
+	if (current_stage > 12)
+	{
+		current_stage /= 2;
+	}
+	else if (current_stage > 11)
+	{
+		current_stage *= 2;
+	}
+	else if (current_stage >10)
+	{
+		current_stage *= 2;
+	}
+	else if (current_stage >9)
+	{
+		current_stage *= 2;
+	}
+	else if (current_stage >8)
+	{
+		current_stage *= 2;
+	}
+	else if (current_stage >7)
+	{
+		current_stage *= 2;
+	}
+	else if (current_stage >6)
+	{
+		current_stage *= 2;
+	}
+	else if (current_stage >5)
+	{
+		current_stage *= 2;
+	}
+	else if (current_stage > 1)
+	{
+		current_stage *= 2;
+	}
+	frequancy_tuning_word[divider] = pitch[divider];
 	time_hz++;
 }
 void set_envelopes(){
 	
-	envelope_setup(&synthesizer.amplitudeEnvs[1], 65535,1,65535,0);
-	
-	int i = 1;
-	for(i = 1; i < SYNTH_VOICE_COUNT - 1; i++){
-		envelope_setup(&synthesizer.amplitudeEnvs[i], 65535,1,65535,50);
+	int i = 0;
+	for(i = 0; i < SYNTH_VOICE_COUNT; i++){
+		envelope_setup(&synthesizer.amplitudeEnvs[i], 65535,1,65535,27);
 	}
 	
-	envelope_setup(&synthesizer.amplitudeEnvs[7], 65536,0,65355,0);
 }
 
 
@@ -163,4 +168,8 @@ void set_oscillators(){
 	
 	//setVoices(&synthesizer.oscillators[7], &snare,0,127);
 
+}
+
+void set_lfo(){
+	
 }

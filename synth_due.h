@@ -47,13 +47,12 @@ public:
         pmc_enable_periph_clk((uint32_t)TC5_IRQn);
         TC_Configure(TC1, 2, TC_CMR_WAVE | TC_CMR_WAVSEL_UP_RC | TC_CMR_TCCLKS_TIMER_CLOCK4);
         uint32_t rc = VARIANT_MCK/128/FS; //128 because we selected TIMER_CLOCK4 above
-        //TC_SetRA(tc, channel, rc/2); //50% high, 50% low
+        //TC_SetRA(TC1, 2, rc/2); //50% high, 50% low
         TC_SetRC(TC1, 2, rc);
         TC_Start(TC1, 2);
         TC1->TC_CHANNEL[2].TC_IER=TC_IER_CPCS;
         TC1->TC_CHANNEL[2].TC_IDR=~TC_IER_CPCS;
         NVIC_EnableIRQ(TC5_IRQn);
-  
 		//set_envelopes();
   }
 
@@ -83,8 +82,6 @@ public:
 
   unsigned char voiceFree(unsigned char voice)
   {
-    if (!(((unsigned char*)&envelope_phase[voice])[1]&0x80))
-      return 0;
     return 1;
   }
 
@@ -94,12 +91,11 @@ public:
   //  voice[0-3],wave[0-6],pitch[0-127],envelope[0-4],length[0-127],mod[0-127:64=no mod]
   //*********************************************************************
 
-  void setupVoice(unsigned char voice, uint8_t *wave, unsigned char pitch, unsigned char env, unsigned char length, unsigned int mod)
+  void setupVoice(unsigned char voice,const uint8_t *wave, unsigned char pitch, unsigned char env, unsigned char length, unsigned int mod)
   {
     setWave(voice,wave);
     setPitch(voice,pitch);
     setEnvelope(voice,env);
-    setLength(voice,length);
     setMod(voice,mod);
   }
 
@@ -107,7 +103,7 @@ public:
   //  Setup wave [0-6]
   //*********************************************************************
 
-  void setWave(unsigned char voice, uint8_t *wave){
+  void setWave(unsigned char voice,const uint8_t *wave){
       
 	  wavs[voice] = wave;
 	  
@@ -118,7 +114,8 @@ public:
 
   void setPitch(unsigned char voice,unsigned char MIDInote)
   {
-    pitch[voice]=PITCHS[MIDInote];
+
+	pitch[voice]=PITCHS[MIDInote];
   }
 
   //*********************************************************************
@@ -134,10 +131,7 @@ public:
   //  Setup Length [0-128]
   //*********************************************************************
 
-  void setLength(unsigned char voice,unsigned char length)
-  {
-    env_fast_tuning_word[voice]=EFTWS[length];
-  }
+
 
   //*********************************************************************
   //  Setup mod
@@ -145,8 +139,7 @@ public:
 
   void setMod(unsigned char voice,unsigned char mod)
   {
-    //    MOD[voice]=(unsigned int)mod*8;//0-1023 512=no mod
-    modulation[voice]=(int)mod-64;//0-1023 512=no mod
+	  
   }
 
   //*********************************************************************
@@ -155,17 +148,35 @@ public:
 
   void mTrigger(unsigned char voice,unsigned char MIDInote, uint16_t amplitude)
   {
-    pitch[voice]=*(&PITCHS[MIDInote]);
-    envelope_phase[voice]=0;
-	phase_accumulators[voice] = 0;
-    wave_amplitude[voice] = amplitude;
-    frequancy_tuning_word[divider] = pitch[voice] + (int)(((pitch[voice]>>6)*(envelope_phase[voice]>>6))/128);//*MOD[voice];
-	noteTrigger[voice] = 1;
+		if (MIDInote <= 36)
+		{
+			wavs[voice] = piano_C3.wave;
+			max_length[voice] = piano_C3.max_length;
+			loop_point[voice] = piano_C3.loop_point;
+			pitch[voice]=*(&PITCHS[MIDInote - piano_C3.pitch_from_C5]);
+		}
+		if (MIDInote > 36 && MIDInote <= 55)
+		{
+			wavs[voice] = piano_C5.wave;
+			max_length[voice] = piano_C5.max_length;
+			loop_point[voice] = piano_C5.loop_point;
+			pitch[voice]=*(&PITCHS[MIDInote - piano_C5.pitch_from_C5]);
+		}
+		if (MIDInote > 55)
+		{
+			wavs[voice] = piano_C6.wave;
+			max_length[voice] = piano_C6.max_length;
+			loop_point[voice] = piano_C6.loop_point;
+			pitch[voice]=*(&PITCHS[MIDInote - piano_C6.pitch_from_C5]);
+		}
+		phase_accumulators[voice] = 0;
+		wave_amplitude[voice] = amplitude;
+		frequancy_tuning_word[divider] = pitch[voice];
+		noteTrigger[voice] = 1;
   }
 
   void noteOff(unsigned char voice){
 	noteDeath[voice] = 1;
-    envelope_phase[voice]=0x80;
     amplitude[voice] = 0;
   }
 
@@ -187,10 +198,7 @@ public:
   //  Set time
   //*********************************************************************
 
-  void setTime(unsigned char voice,float t)
-  {
-    env_fast_tuning_word[voice]=(1.0/t)/(FS/(32767.5*10.0));//[s];
-  }
+
 
   //*********************************************************************
   //  Simple trigger
@@ -198,7 +206,6 @@ public:
 
   void trigger(unsigned char voice)
   {
-    envelope_phase[voice]=0;
     frequancy_tuning_word[voice]=pitch[voice];
     //    FTW[voice]=PITCH[voice]+(PITCH[voice]*(EPCW[voice]/(32767.5*128.0  ))*((int)MOD[voice]-512));
   }
